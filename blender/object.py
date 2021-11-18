@@ -1,10 +1,16 @@
 import re
 from os.path import basename, dirname
+import os.path as osp
 import numpy as np
+import open3d as o3d
+from tqdm import tqdm
 
 from ..imprt import preset_import
 
 from .. import log, os as xm_os
+from mathutils import Euler
+import mathutils
+from math import radians
 logger = log.get_logger()
 
 
@@ -82,8 +88,7 @@ def remove_objects(name_pattern, regex=False):
 
 def import_object(
         model_path, axis_forward='-Z', axis_up='Y',
-        rot_mat=((1, 0, 0), (0, 1, 0), (0, 0, 1)),
-        trans_vec=(0, 0, 0), scale=1, merge=False, name=None):
+        rot_vec_degree=(0, 0, 0), location=(0,0,0), scale=1, merge=False, name=None, geometry_center_origin=False):
     """Imports external object to current scene, the low-level way.
 
     Args:
@@ -97,6 +102,7 @@ def import_object(
         scale (float, optional): Scale of the object.
         merge (bool, optional): Whether to merge objects into one.
         name (str, optional): Object name after import.
+        geometry_center_origin (bool, optional): Set object's origin to its center at first
 
     Returns:
         bpy_types.Object or list(bpy_types.Object): Imported object(s).
@@ -115,8 +121,14 @@ def import_object(
     elif model_path.endswith('.ply'):
         bpy.ops.import_mesh.ply(filepath=model_path)
         logger.warning("axis_forward and axis_up ignored for .ply")
+    elif model_path.endswith('.STL'):
+        bpy.ops.import_mesh.stl(filepath=model_path)
+        logger.warning("axis_forward and axis_up ignored for .ply")
     else:
         raise NotImplementedError(".%s" % model_path.split('.')[-1])
+    
+    if geometry_center_origin:
+        bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='MEDIAN')
 
     # Merge, if asked to
     if merge and len(bpy.context.selected_objects) > 1:
@@ -139,12 +151,18 @@ def import_object(
                 obj.name = name
             else:
                 obj.name = name + '_' + str(i)
+        
+        # import ipdb; ipdb.set_trace()
 
-        # Compute world matrix
-        trans_4x4 = Matrix.Translation(trans_vec)
-        rot_4x4 = Matrix(rot_mat).to_4x4()
-        scale_4x4 = Matrix(np.eye(4)) # don't scale here
-        obj.matrix_world = trans_4x4 * rot_4x4 * scale_4x4
+        # # Compute world matrix
+        # trans_4x4 = Matrix.Translation(trans_vec)
+        # rot_4x4 = Matrix(rot_mat).to_4x4()
+        # scale_4x4 = Matrix(np.eye(4)) # don't scale here
+        # obj.matrix_world = trans_4x4 * rot_4x4 * scale_4x4
+
+        # Rotation and location
+        obj.rotation_euler = Euler((radians(rot_vec_degree[0]), radians(rot_vec_degree[1]), radians(rot_vec_degree[2])), 'XYZ')
+        obj.location = location[0], location[1], location[2]
 
         # Scale
         obj.scale = (scale, scale, scale)
@@ -854,7 +872,7 @@ def add_sphere(
     sphere.modifiers['Subdivision'].levels = n_subdiv
     sphere.modifiers['Subdivision'].render_levels = n_subdiv
     bpy.context.view_layer.objects.active = sphere
-    bpy.ops.object.modifier_apply(modifier='Subdivision', apply_as='DATA')
+    bpy.ops.object.modifier_apply(modifier='Subdivision')
 
     # Fake smoothness
     if shade_smooth:
@@ -955,3 +973,205 @@ def raycast(obj_bvhtree, ray_from_objspc, ray_to_objspc):
     if hit_loc is None:
         assert hit_normal is None and hit_fi is None and ray_dist is None
     return hit_loc, hit_normal, hit_fi, ray_dist
+
+
+def add_cube_frame(location, rot_vec_degree=(0,0,0), scale=(1, 1, 1), size=2, name=None, color=None, thickness=0.08):
+    """Add a frame box"""
+    bpy = preset_import('bpy', assert_success=True)
+    bpy.ops.mesh.primitive_cube_add(size=size, enter_editmode=False, location=location, rotation=[radians(degree) for degree in rot_vec_degree], scale=scale)
+
+    cube_obj = bpy.context.active_object
+    
+    if name is not None:
+        cube_obj.name = name
+    
+    # add wireframe modifier
+    wireframe_modifier = cube_obj.modifiers.new(name='wireframe', type='WIREFRAME')
+    wireframe_modifier.thickness = thickness
+
+    # Set material
+    if color is not None:
+        material = bpy.data.materials.new('cube_frame_material')
+        material.diffuse_color = color
+        cube_obj.active_material = material
+    
+    # bpy.context.view_layer.objects.active = cube_obj
+    return cube_obj
+
+def add_cam_pose_model(camera_mesh_path, location=(0,0,0), rot_vec_degree=(0,0,0), scale=1):
+    '''
+    Import an camera model to visualize
+    '''
+    bpy = preset_import('bpy', assert_success=True)
+    Matrix = preset_import('Matrix', assert_success=True)
+
+    bpy.ops.import_mesh.stl(filepath=camera_mesh_path, global_scale=scale)
+    bpy.ops.object.origin_set(type='GEOMETRY_ORIGIN', center='MEDIAN')
+
+    obj = bpy.context.active_object
+
+    # Rotation and location
+    obj.rotation_euler = Euler((radians(rot_vec_degree[0]), radians(rot_vec_degree[1]), radians(rot_vec_degree[2])), 'XYZ')
+    obj.location = location[0], location[1], location[2]
+
+    # Scale
+    obj.scale = (scale, scale, scale)
+
+    return obj
+
+def add_xyz_colume_to_obj_center(obj_name, patten=["X", "Y", "Z"], length=1, r=1e-3):
+    """Useful for draw 6D pose bbox axis
+    length is axis's length
+    material is emisson
+    """
+    bpy = preset_import('bpy', assert_success=True)
+    assert obj_name in bpy.data.objects, f"{obj_name} not exists!"
+
+    obj_location = np.asarray(bpy.data.objects[obj_name].location)
+    obj_rotation_euler = np.asarray(bpy.data.objects[obj_name].rotation_euler)
+
+    # Get rot_mat
+    rot_mat = np.asarray(mathutils.Euler(obj_rotation_euler).to_matrix())
+
+    # TODO: fix bug for patten
+    axis_directions = [np.array([1,0,0]), np.array([0,1,0]), np.array([0,0,1])] # XYZ
+    colors = [(1, 0.0382, 0.0865,1), (0.250158, 0.701102, 0, 1), (0.02518, 0.2746, 1,1)] # X-red, Y-green, Z-blue
+
+    # re define xyz
+    axis_directions_redefined = []
+    colors_redefined = []
+    mapping_dict = {"X":0, "-X":0, "x":0, "-x":0, "Y":1, "-Y":1, "y":1, "-y":1, "Z":2, "-Z": 2, "z":2, "-z":2}
+    for axis in patten:
+        assert axis in mapping_dict
+        idx = mapping_dict[axis]
+        colors_redefined.append(colors[idx])
+        if '-' in axis:
+            axis_directions_redefined.append(axis_directions[idx] * -1)
+        else:
+            axis_directions_redefined.append(axis_directions[idx])
+    axis_directions = axis_directions_redefined
+    colors = colors_redefined
+
+    assert len(colors) >= len(axis_directions)
+    for i, axis_direction in enumerate(axis_directions):
+        direction_after_rot = (rot_mat @ axis_direction[:, None]) # [3*1]
+
+        # normalize
+        norm = np.linalg.norm(direction_after_rot, axis=0)
+        direction_after_rot /= (norm + 1e-6)
+        direction_after_rot = np.squeeze(direction_after_rot, axis=1) # [3] unit vect
+
+        aim_loc = obj_location + direction_after_rot * length
+
+        # add cylinder
+        # NOTE:add_cylinder between is in the same file
+        cylinder_obj = add_cylinder_between(obj_location, aim_loc, r=r, name="Axis Cylinder")
+        # add color to cylinder
+
+        # make emission material
+        axis_material = bpy.data.materials.new(name='axis_material')
+        axis_material.use_nodes = True
+        nodes = axis_material.node_tree.nodes
+        links = axis_material.node_tree.links
+        emission_node = nodes.new(type="ShaderNodeEmission")
+        nodes['Emission'].inputs[0].default_value = colors[i]
+        # remove Principle BRDF
+        node_to_delete = nodes['Principled BSDF']
+        nodes.remove(node_to_delete)
+        # relink emission node
+        links.new(emission_node.outputs[0], nodes['Material Output'].inputs[0])
+
+        cylinder_obj.cycles_visibility.shadow = False
+
+        cylinder_obj.active_material = axis_material
+
+def add_plane_to_cam_frame(camera_frame_name, original_direction=[0,0,-1], image_path=None, move_length=1, scale=(1,1,1)):
+    """Add a plane to camera frame and attach image on it.
+    Note: `move_length` and `scale` should be adjusted to adapt camera frame's size.
+    if image_path is assigned, image will be attached to image plane as texture.
+    original_direction: original direction of camera frame obj with zero rotation.
+    """
+    bpy = preset_import('bpy', assert_success=True)
+
+    camera_frame_location = np.asarray(bpy.data.objects[camera_frame_name].location)
+    camera_frame_rotation_euler = np.asarray(bpy.data.objects[camera_frame_name].rotation_euler)
+
+    # Get move direction:
+    origin_direction = np.array([original_direction]).T # 3*1 point to -z
+    # get rotation matrix:
+    rot_mat = np.asarray(mathutils.Euler(camera_frame_rotation_euler).to_matrix())
+    direction_after_rot = (rot_mat @ origin_direction) # 3*1
+    # normalize
+    norm = np.linalg.norm(direction_after_rot, axis=0)
+    direction_after_rot /= (norm + 1e-6)
+    direction_after_rot = np.squeeze(direction_after_rot, axis=1) # [3]
+
+    # Add plane and move to camera frame plane:
+    bpy.ops.mesh.primitive_plane_add()
+    plane_obj = bpy.context.active_object
+
+    plane_obj.rotation_euler = camera_frame_rotation_euler
+    plane_obj.location = camera_frame_location + direction_after_rot * move_length
+    plane_obj.scale = scale
+
+    # Add texture image to plane
+    if image_path is not None:
+        assert osp.exists(image_path)
+        plane_material = bpy.data.materials.new(name=f'plane_material')
+        plane_material.use_nodes = True
+        nodes = plane_material.node_tree.nodes
+        links = plane_material.node_tree.links
+
+        # Load image as texture!
+        image = bpy.data.images.load(image_path)
+        node_texture = nodes.new(type='ShaderNodeTexImage')
+        node_texture.name = 'texture'
+        node_texture.interpolation = 'Closest'
+        node_texture.image = image
+        links.new(node_texture.outputs[0], nodes['Principled BSDF'].inputs[0])
+
+        plane_obj.active_material = plane_material
+
+
+    bpy.context.view_layer.update()
+    return plane_obj
+
+def add_colored_point_cloud(point_cloud_path, partical_size=0.01, scene_scale=1, rot_vect_degree=(0,0,0), location=(0,0,0), max_point_num=5000, shape='sphere'):
+    """Add point cloud as mulitple sphere or cubes, 
+    NOTE: this is an ineffective solution! If you don't need to show colored point cloud, you can use particle system in blender for effective rendering!
+    TODO: move point cloud to a collection
+    """
+    bpy = preset_import('bpy', assert_success=True)
+
+    assert osp.exists(point_cloud_path)
+    pointcloud_loaded = o3d.io.read_point_cloud(point_cloud_path)
+
+    xyzs = np.asarray(pointcloud_loaded.points) * scene_scale
+    colors = np.asarray(pointcloud_loaded.colors)
+
+    if xyzs.shape[0] > max_point_num:
+        # Too many points! Sample according to max point num
+        logger.info(f'{xyzs.shape[0]} points in point cloud, down sample to {max_point_num} points!')
+        filter_idxs = np.random.randint(0, xyzs.shape[0], max_point_num)
+        xyzs = xyzs[filter_idxs]
+        colors = colors[filter_idxs]
+
+    colors = np.concatenate([colors, np.ones((colors.shape[0], 1))], axis=1) if colors.shape[1] != 4 else colors
+
+    for i, xyz in tqdm(enumerate(xyzs), total=xyzs.shape[0]):
+        if shape == "sphere":
+            bpy.ops.mesh.primitive_uv_sphere_add(enter_editmode=False)
+        elif shape == "cube":
+            bpy.ops.mesh.primitive_cube_add(enter_editmode=False)
+        sphere_obj = bpy.context.active_object
+
+        # change location
+        sphere_obj.location = xyz.tolist()
+        sphere_obj.scale = [partical_size] * 3
+
+        # change material
+        material = bpy.data.materials.new(f'partical_material{i}')
+        material.diffuse_color = colors[i].tolist()
+        material.specular_intensity = 0.0
+        material.roughness = 0.9
+        sphere_obj.active_material = material

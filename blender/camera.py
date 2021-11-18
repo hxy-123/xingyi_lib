@@ -2,6 +2,7 @@ from os import remove, rename
 from os.path import dirname, basename
 from time import time
 import numpy as np
+from math import radians
 
 from .object import get_bmesh, raycast
 from ..imprt import preset_import
@@ -13,7 +14,7 @@ logger = get_logger()
 
 
 def add_camera(xyz=(0, 0, 0),
-               rot_vec_rad=(0, 0, 0),
+               rot_vec_degree=(0, 0, 0),
                name=None,
                proj_model='PERSP',
                f=35,
@@ -52,7 +53,7 @@ def add_camera(xyz=(0, 0, 0),
         cam.name = name
 
     cam.location = xyz
-    cam.rotation_euler = rot_vec_rad
+    cam.rotation_euler = [radians(degree) for degree in rot_vec_degree]
 
     cam.data.type = proj_model
     cam.data.lens = f
