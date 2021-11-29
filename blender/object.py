@@ -118,12 +118,15 @@ def import_object(
     if model_path.endswith('.obj'):
         bpy.ops.import_scene.obj(
             filepath=model_path, axis_forward=axis_forward, axis_up=axis_up)
+    elif model_path.endswith('.fbx'):
+        bpy.ops.import_scene.fbx(filepath=model_path)
+        logger.warning("axis_forward and axis_up ignored for .fbx")
     elif model_path.endswith('.ply'):
         bpy.ops.import_mesh.ply(filepath=model_path)
         logger.warning("axis_forward and axis_up ignored for .ply")
     elif model_path.endswith('.STL'):
         bpy.ops.import_mesh.stl(filepath=model_path)
-        logger.warning("axis_forward and axis_up ignored for .ply")
+        logger.warning("axis_forward and axis_up ignored for .stl")
     else:
         raise NotImplementedError(".%s" % model_path.split('.')[-1])
     

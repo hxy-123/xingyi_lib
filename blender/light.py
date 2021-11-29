@@ -152,6 +152,8 @@ def add_light_point(xyz=(0, 0, 0), name=None, size=0, energy=100):
     if engine == 'CYCLES':
         point.data.node_tree.nodes['Emission'].inputs[
             'Strength'].default_value = energy
+    elif engine == "BLENDER_EEVEE":
+        point.data.energy = energy
     else:
         raise NotImplementedError(engine)
 

@@ -67,7 +67,7 @@ def set_cycles(w=None, h=None,
 
     # If world background is transparent with premultiplied alpha
     if transp_bg is not None:
-        render.film_transparent = transp_bg
+        scene.render.film_transparent = transp_bg
 
     # # Use GPU
     # bpy.context.user_preferences.system.compute_device_type = 'CUDA'
@@ -90,6 +90,72 @@ def set_cycles(w=None, h=None,
         scene.render.image_settings.color_depth = color_depth
 
     logger.info("Cycles set up as rendering engine")
+
+
+def set_eevee(w=None, h=None,
+               n_samples=None, max_bounces=None, min_bounces=None,
+               transp_bg=None,
+               color_mode=None, color_depth=None):
+    """Sets up Cycles as rendering engine.
+
+    ``None`` means no change.
+
+    Args:
+        w (int, optional): Width of render in pixels.
+        h (int, optional): Height of render in pixels.
+        n_samples (int, optional): Number of samples.
+        max_bounces (int, optional): Maximum number of light bounces.
+            Setting max_bounces to 0 for direct lighting only.
+        min_bounces (int, optional): Minimum number of light bounces.
+        transp_bg (bool, optional): Whether world background is transparent.
+        color_mode (str, optional): Color mode: ``'BW'``, ``'RGB'`` or
+            ``'RGBA'``.
+        color_depth (str, optional): Color depth: ``'8'`` or ``'16'``.
+    """
+    bpy = preset_import('bpy', assert_success=True)
+
+    scene = bpy.context.scene
+    scene.render.engine = 'BLENDER_EEVEE'
+    eevee = scene.eevee
+
+    if n_samples is not None:
+        eevee.taa_render_samples = n_samples
+
+    # Avoid grainy renderings (fireflies)
+    # world = bpy.data.worlds['World']
+    # world.cycles.sample_as_light = True
+    # # Ensure there's no background light emission
+    # world.use_nodes = True
+    # try:
+    #     world.node_tree.nodes.remove(world.node_tree.nodes['Background'])
+    # except KeyError:
+    #     pass
+
+    # If world background is transparent with premultiplied alpha
+    if transp_bg is not None:
+        scene.render.film_transparent = transp_bg
+
+    # # Use GPU
+    # bpy.context.user_preferences.system.compute_device_type = 'CUDA'
+    # bpy.context.user_preferences.system.compute_device = \
+    # 'CUDA_' + str(randint(0, 3))
+    # scene.cycles.device = 'GPU'
+
+    scene.render.tile_x = 16 # 256 optimal for GPU
+    scene.render.tile_y = 16 # 256 optimal for GPU
+    if w is not None:
+        scene.render.resolution_x = w
+    if h is not None:
+        scene.render.resolution_y = h
+    scene.render.resolution_percentage = 100
+    scene.render.use_file_extension = True
+    scene.render.image_settings.file_format = 'PNG'
+    if color_mode is not None:
+        scene.render.image_settings.color_mode = color_mode
+    if color_depth is not None:
+        scene.render.image_settings.color_depth = color_depth
+
+    logger.info("Eevee set up as rendering engine")
 
 
 def easyset(w=None, h=None,

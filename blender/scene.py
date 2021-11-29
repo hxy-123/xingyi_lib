@@ -55,3 +55,22 @@ def open_blend(inpath):
     bpy = preset_import('bpy', assert_success=True)
 
     bpy.ops.wm.open_mainfile(filepath=inpath)
+
+def add_environment_map(envmap_path):
+    """Add environment map to world for more nature illumination"""
+    bpy = preset_import('bpy', assert_success=True)
+    nodes = bpy.context.scene.world.node_tree.nodes
+    links = bpy.context.scene.world.node_tree.links
+    env_texture_node = nodes.new(type="ShaderNodeTexEnvironment")
+    env_texture_node.image = bpy.data.images.load(envmap_path)
+    links.new(env_texture_node.outputs[0], nodes["World Output"].inputs[0])
+
+def add_material(color, name=None):
+    bpy = preset_import('bpy', assert_success=True)
+    material = bpy.data.materials.new(name=f"material" if name is None else name)
+    material.use_nodes = True
+    nodes = material.node_tree.nodes
+    links = material.node_tree.links
+    principle_bsdf = nodes["Principled BSDF"]
+    principle_bsdf.inputs[0].default_value = color
+    return material

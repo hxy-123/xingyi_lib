@@ -79,3 +79,17 @@ def load_np(np_f):
         data = np.load(h, allow_pickle=True)
         data = dict(data)
     return data
+
+def save_np(data, save_path):
+    ext = save_path.split('.')[-1].lower()
+    def save_func(data, path):
+        if ext == 'npy':
+            save = np.save
+        elif ext == 'npz':
+            save = np.savez
+        else:
+            raise NotImplementedError(ext)
+        with open(path, 'wb') as h:
+            save(h, data)
+
+    save_func(data, save_path)
