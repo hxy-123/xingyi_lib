@@ -281,6 +281,60 @@ def add_cylinder_between(pt1, pt2, r=1e-3, name=None):
 
     return cylinder_obj
 
+def add_sample_between(pt1, pt2, n_sample=5, r=1e-3, material=None, draw_near=False, draw_far=False, near_far_r=2e-3):
+    """Adds sample points specified by two end points and radius.
+
+    Super useful for visualizing rays' samples in ray tracing while debugging.
+
+    Args:
+        pt1 (array_like): World coordinates of point 1.
+        pt2 (array_like): World coordinates of point 2.
+        r (float, optional): sample ball radius.
+
+    Returns:
+        bpy_types.Object: Cylinder added.
+    """
+    bpy = preset_import('bpy', assert_success=True)
+
+    pt1 = np.array(pt1)
+    pt2 = np.array(pt2)
+
+    d = pt2 - pt1
+
+    # Add cylinder at the correct location
+    dist = np.linalg.norm(d)
+    dir = d / (dist + 1e-4)
+    dist_step = dist / (n_sample + 1)
+
+    if draw_near:
+        bpy.ops.mesh.primitive_uv_sphere_add(enter_editmode=False)
+        sphere_obj = bpy.context.active_object
+        sphere_obj.location = pt1.tolist()
+        sphere_obj.scale = [near_far_r] * 3
+        if material is not None:
+            sphere_obj.active_material = material
+        sphere_obj.cycles_visibility.shadow = False
+
+    if draw_far:
+        bpy.ops.mesh.primitive_uv_sphere_add(enter_editmode=False)
+        sphere_obj = bpy.context.active_object
+        sphere_obj.location = pt2.tolist()
+        sphere_obj.scale = [near_far_r] * 3
+        if material is not None:
+            sphere_obj.active_material = material
+        sphere_obj.cycles_visibility.shadow = False
+
+    for i in range(n_sample):
+        location = pt1 + (i+1) * dist_step * dir
+        bpy.ops.mesh.primitive_uv_sphere_add(enter_editmode=False)
+        sphere_obj = bpy.context.active_object
+        sphere_obj.location = location.tolist()
+        sphere_obj.scale = [r] * 3
+
+        if material is not None:
+            sphere_obj.active_material = material
+        sphere_obj.cycles_visibility.shadow = False
+
 
 def add_rectangular_plane(
         center_loc=(0, 0, 0), point_to=(0, 0, 1), size=(2, 2), name=None):
